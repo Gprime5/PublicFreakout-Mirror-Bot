@@ -52,12 +52,17 @@ def wait_completed(shortcode):
 		percent = get(url + shortcode).json()["percent"]
 
 def post_to_reddit(post, shortcode):
-	reply_text = ["[Streamable Mirror](https://streamable.com/{})\n\n^^I am a bot | [Message author](https://www.reddit.com/message/compose/?to=Gprime5&subject=PublicFreakout%20Mirror%20Bot%20)"
-	n = post.reply(reply_text.format(shortcode))
+	reply_text = [
+		"[Streamable Mirror](https://streamable.com/{})\n\n^^I am a bot",
+		"[Message author](https://www.reddit.com/message/compose/?to=Gprime5&subject=PublicFreakout%20Mirror%20Bot%20)",
+		"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)"
+	]
+	
+	n = post.reply(" | ".join(reply_text).format(shortcode))
 
 def log(text):
 	with open("log.txt", "a") as file:
-		file.write(text+"\n")
+		file.write(text + "\n")
 
 def run():
 	while True:
