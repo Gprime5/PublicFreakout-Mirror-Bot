@@ -24,7 +24,8 @@ def import_streamable(submission):
 
 	Import video from submission to Streamable
 
-	Return request response object
+	Return shortcode on success
+	Return Error on failure
 
 	"""
 
@@ -36,17 +37,10 @@ def import_streamable(submission):
 		"url": submission.url,
 		"title": submission.title
 	}
-	
+
 	return get(url, parameters, auth=auth)
 
 def upload(filename, title):
-	"""
-	
-	Uploads file to streamable
-	Return request response object
-	
-	"""
-	
 	url = "https://api.streamable.com/upload"
 
 	with open("Media\\" + filename + ".mp4", "rb") as file:
@@ -54,7 +48,7 @@ def upload(filename, title):
 			"file": file,
 			"title": title
 		}
-		
+
 		return post(url, files=files, auth=auth)
 
 def download(name, url):
@@ -75,16 +69,15 @@ def combine_media():
 		'Media\\output.mp4'
 	]
 
+	print("Combining video and audio")
+
 	subprocess.run(command, creationflags=8)
 
 def upload_streamable(submission):
 	"""
 
 	Download video and audio clip from reddit
-	combine them into a single video
 	then upload to streamable
-	
-	Return request response object
 
 	"""
 
@@ -107,26 +100,16 @@ def wait_completed(shortcode):
 	"""
 
 	Poll video until 100% complete
-	
-	Return True on complete
-	Return None on Error
 
 	"""
 
 	url = "https://api.streamable.com/videos/"
 
-	response = get(url + shortcode).json()
-
-	if response["message"] == "Videos must be under 10 minutes":
-		return
-	if response["message"] == "Could not process file":
-		return
-
 	json = get(url + shortcode).json()
 
-	while json["percent"] < 100:
-		if json["status"] != 1:
-			return
+	while json["status"] != 2:
+		if json["status"] == 3:
+			return {"Error": json["message"]}
 
 		sleep(1)
 
@@ -134,7 +117,7 @@ def wait_completed(shortcode):
 
 	print("Streamable complete")
 
-	return True
+	return {"OK":""}
 
 def post_to_reddit(submission, shortcode):
 	print("https://streamable.com/" + shortcode)
@@ -150,47 +133,60 @@ def post_to_reddit(submission, shortcode):
 	except praw.exceptions.APIException as e:
 		print(e)
 
-def log(text):
+def log(reason, reddit="", streamable=""):
 	with open("log.txt", "a") as file:
-		file.write(text + "\n")
+		file.write("{} | {} | {} | {}\n".format(reddit, reason, ctime(), streamable))
 
 def run():
-	try:
-		# Get next post
-		submission = next(PF)
-	except (RequestException, ServerError):
-		# If no connection, try again in 10 minutes
-		log("Connection Error | " + ctime())
-		sleep(10*60)
-	else:
-		print("https://redd.it/" + str(submission))
-
-		# Skip self posts
-		if submission.is_self:
-			return
-
-		if submission.domain == "v.redd.it":
-			response = upload_streamable(submission)
+	while True:
+		try:
+			# Get next post
+			submission = next(PF)
+		except (RequestException, ServerError):
+			# If no connection, try again in 10 minutes
+			log("Connection Error")
+			sleep(10*60)
 		else:
-			response = import_streamable(submission)
+			print("https://redd.it/" + str(submission))
 
-		if response.status_code == 200: # Response OK
-			json = response.json()
+			# Skip self posts
+			if submission.is_self:
+				continue
 
-			if wait_completed(json["shortcode"]):
-				redd_response = post_to_reddit(submission, json["shortcode"])
+			if "sex" in submission.title.lower():
+				continue
+			if "fight" in submission.title.lower():
+				continue
 
-				log("{} | Success | {} | https://streamable.com/{}".format(submission.shortlink, ctime(), json["shortcode"]))
+			if submission.domain == "v.redd.it":
+				response = upload_streamable(submission)
 			else:
-				log("{} | Error | {} | ".format(submission.shortlink, ctime()))
-		else:
-			if response.status_code == 401: # Credential Error
-				log("{} | {} | {} | ".format(submission.shortlink, response.text, ctime()))
-			elif response.status_code == 422: # Invalid URL
-				log("{} | {} | {} | ".format(submission.shortlink, response.json()["messages"]["url"][0], ctime()))
-			elif response.text.startswith("ERROR: "):
-				log("{} | {} | {} | ".format(submission.shortlink, response.text[7:], ctime()))
+				response = import_streamable(submission)
+
+			if response.status_code == 200:
+				json = response.json()
+
+				wait = wait_completed(json["shortcode"])
+
+				if wait.get("OK"):
+					redd_response = post_to_reddit(submission, json["shortcode"])
+
+					log("Success", submission.shortlink, "https://streamable.com/" + json["shortcode"])
+				else:
+					log(wait["Error"], submission.shortlink)
+			else:
+				if response.status_code == 401: # Credential Error
+					log(response.text, submission.shortlink)
+				elif response.status_code == 403: # Forbidden
+					log("Forbidden", submission.shortlink)
+					return
+				elif response.status_code == 422: # Invalid URL
+					log(response.json()["messages"]["url"][0], submission.shortlink)
+				elif response.status_code == 429: # Too many requests
+					log(response.text, submission.shortlink)
+					return
+				elif response.text.startswith("ERROR: "):
+					log(response.text[7:], submission.shortlink)
 
 if __name__ == "__main__":
-	while True:
-		run()
+	run()
