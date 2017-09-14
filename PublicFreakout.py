@@ -123,9 +123,10 @@ def post_to_reddit(submission, shortcode):
 	print("https://streamable.com/" + shortcode)
 
 	reply_text = [
-		"[Mirror](https://streamable.com/" + shortcode + ")\n\n\n^^I am a bot",
+		"[Mirror](https://streamable.com/" + shortcode + ")\n\n\n\n^^I am a bot",
 		"[Message author](https://www.reddit.com/message/compose/?to=Gprime5&subject=PublicFreakout%20Mirror%20Bot%20)",
-		"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)"
+		"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)",
+		"[Support me ♥](https://www.paypal.me/gprime5)"
 	]
 
 	try:
@@ -175,6 +176,7 @@ def run():
 				else:
 					log(wait["Error"], submission.shortlink)
 			else:
+				print("Streamable error")
 				if response.status_code == 401: # Credential Error
 					log(response.text, submission.shortlink)
 				elif response.status_code == 403: # Forbidden
