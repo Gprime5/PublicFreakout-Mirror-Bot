@@ -267,7 +267,7 @@ def run(stream):
 if __name__ == "__main__":
 	stream = reddit.subreddit("PublicFreakout").stream.submissions()
 
-	for i in range(100-2):
+	for i in range(100):
 		next(stream)
 
 	run(stream)
