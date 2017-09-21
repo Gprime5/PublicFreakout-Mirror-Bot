@@ -1,79 +1,91 @@
-print("Initializing PublicFreakout.py")
-
 import praw
+import subprocess
+import re
+from functools import partial
 from prawcore.exceptions import RequestException, ServerError
 from requests import get, post
 from time import sleep, ctime
 from configparser import ConfigParser
-import subprocess
+from youtube_dl import YoutubeDL
+from youtube_dl.utils import DownloadError
+
+pprint = partial(print, end=" | ", flush=True)
+pprint("Initializing PublicFreakout.py")
 
 config = ConfigParser()
 config.read("praw.ini")
 
 reddit = praw.Reddit("Reddit")
-PF = reddit.subreddit("PublicFreakout").stream.submissions()
 auth = config["Streamable"]["username"], config["Streamable"]["password"]
+bad_words = re.compile("(?:sex|fight|naked|nude|brawl)")
+yt = YoutubeDL({"quiet":True, "no_warnings":True, "outtmpl":"Media\\output.mp4"})
 
-# Skip old posts so only get new ones
-for i in range(100):
-	next(PF)
-print("Initialization Complete")
-
-def import_streamable(submission):
-	"""
-
-	Import video from submission to Streamable
-
-	Return shortcode on success
-	Return Error on failure
-
-	"""
-
-	print("Importing streamable")
-
-	url = "https://api.streamable.com/import"
-
-	parameters = {
-		"url": submission.url,
-		"title": submission.title
-	}
-
-	return get(url, parameters, auth=auth)
-
-def upload(filename, title):
-	url = "https://api.streamable.com/upload"
-
-	with open("Media\\" + filename + ".mp4", "rb") as file:
-		files = {
-			"file": file,
-			"title": title
-		}
-
-		return post(url, files=files, auth=auth)
+print("Complete")
 
 def download(name, url):
-	print("Downloading " + name)
+	pprint("Downloading " + name)
 
 	with open("Media\\" + name + ".mp4", "wb") as file:
 		file.write(get(url).content)
 
+def upload(name, title):
+	url = "https://api.streamable.com/upload"
+
+	with open("Media\\" + name + ".mp4", "rb") as file:
+		files = {"file": (title, file)}
+
+		return post(url, files=files, auth=auth)
+
 def combine_media():
 	command = [
-		'Media\\ffmpeg',
-		'-i',
-		'Media\\video.mp4',
-		'-i',
-		'Media\\audio.mp4',
-		'-c',
-		'copy',
-		'Media\\output.mp4'
+		"Media\\ffmpeg",
+		"-i", "Media\\video.mp4",
+		"-i", "Media\\audio.mp4",
+		"-c", "copy",
+		"Media\\output.mp4",
+		"-y"
 	]
 
-	print("Combining video and audio")
+	pprint("Combining video and audio")
 
-	subprocess.run(command, creationflags=8)
+	subprocess.run(command, creationgflags=8)
 
-def upload_streamable(submission):
+def wait_completed(shortcode):
+	"""
+
+	Poll video until 100% complete
+
+	"""
+
+	url = "https://api.streamable.com/videos/"
+
+	response = get(url + shortcode, auth=auth)
+
+	try:
+		json = response.json()
+	except:
+		print("Wait error")
+		return {"Error": response.text}
+
+	while json["status"] != 2:
+		if json["status"] == 3:
+			return {"Error": json["message"]}
+
+		sleep(1)
+
+		response = get(url + shortcode, auth=auth)
+
+		try:
+			json = response.json()
+		except:
+			print("Wait error")
+			return {"Error": response.text}
+
+	pprint("Streamable complete")
+
+	return {"OK": True}
+
+def import_from_reddit(submission):
 	"""
 
 	Download video and audio clip from reddit
@@ -81,7 +93,8 @@ def upload_streamable(submission):
 
 	"""
 
-	print("Creating streamable")
+
+	pprint("Transferring from reddit")
 
 	url = submission.media["reddit_video"]["fallback_url"]
 
@@ -96,99 +109,177 @@ def upload_streamable(submission):
 
 	return upload("output", submission.title)
 
-def wait_completed(shortcode):
+def import_from_other(submission):
 	"""
 
-	Poll video until 100% complete
+	Import video from submission to Streamable
 
 	"""
 
-	url = "https://api.streamable.com/videos/"
+	pprint("Importing streamable")
 
-	json = get(url + shortcode).json()
+	url = "https://api.streamable.com/import"
 
-	while json["status"] != 2:
-		if json["status"] == 3:
-			return {"Error": json["message"]}
+	parameters = {
+		"url": submission.url,
+		"title": submission.title
+	}
 
-		sleep(1)
+	return get(url, parameters, auth=auth)
 
-		json = get(url + shortcode).json()
+def post_to_reddit(submission, shortcodes):
+	print("https://streamable.com/" + shortcodes[-1], ctime())
 
-	print("Streamable complete")
+	if len(shortcodes) == 1:
+		reply_text = [
+			"[Mirror](https://streamable.com/" + shortcodes[0] + ")  \n   \n^^I am a bot",
+			"[Feedback](https://www.reddit.com/message/compose/?to=Gprime5&subject=PublicFreakout%20Mirror%20Bot)",
+			"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)",
+			"[Support me](https://www.paypal.me/gprime5)"
+		]
+	else:
+		reply_format = "[Mirror [Part {}]](https://streamable.com/{})  \n"
+		reply_text = [reply_format.format(part, code) for part, code in enumerate(shortcodes, 1)]
+		reply_text = [
+			"".join(reply_text) + "   \n^^I am a bot",
+			"[Feedback](https://www.reddit.com/message/compose/?to=Gprime5&subject=PublicFreakout%20Mirror%20Bot)",
+			"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)",
+			"[Support me](https://www.paypal.me/gprime5)"
+		]
 
-	return {"OK":True}
+	submission.reply(" | ".join(reply_text))
 
-def post_to_reddit(submission, shortcode):
-	print("https://streamable.com/" + shortcode)
+def import_parts(url):
+	info = yt.extract_info(url, False, process=False)
 
-	reply_text = [
-		"[Mirror](https://streamable.com/" + shortcode + ")  \n   \n^^I am a bot",
-		"[Message author](https://www.reddit.com/message/compose/?to=Gprime5&subject=PublicFreakout%20Mirror%20Bot%20)",
-		"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)",
-		"[Support me ♥](https://www.paypal.me/gprime5)"
-	]
+	if not (600 < info["duration"] < 1800):
+		return
 
-	try:
-		submission.reply(" | ".join(reply_text))
-	except praw.exceptions.APIException as e:
-		print(e)
+	yt.download([url])
+
+	start, end = 0, 0
+	parts = info["duration"] // 600 + 1
+	uploaded = []
+
+	for part in range(parts):
+		part_duration = info["duration"] // (parts - part)
+		end += part_duration
+
+		command = [
+			"Media\\ffmpeg", "-v", "quiet", "-y", "-ss",
+			"{:0>2}:{:0>2}".format(start//60, start%60),
+			"-i", "Media\\output.mp4", "-to",
+			"{:0>2}:{:0>2}".format(end//60, end%60),
+			"-c", "copy", "Media\\output{}.mp4".format(part)
+		]
+
+		subprocess.run(command)
+
+		info["duration"] -= part_duration
+		start = end
+		title = "{} [Part {}]".format(info["title"], part + 1)
+
+		pprint("Uploading " + str(part))
+		uploaded.append(upload("output" + str(part), title))
+
+	return uploaded
+
+def check_parts(submission, response):
+	codes = [n.json()["shortcode"] for n in response]
+	for code in codes:
+		wait_completed(code)
+
+	reddit_response = post_to_reddit(submission, codes)
+
+def check_response(submission, response):
+	if response.status_code == 200: # OK
+		json = response.json()
+
+		wait = wait_completed(json["shortcode"])
+
+		if wait.get("OK"):
+			reddit_response = post_to_reddit(submission, (json["shortcode"],))
+
+			log("Success", submission.shortlink, "https://streamable.com/" + json["shortcode"])
+		elif wait["Error"] == "Videos must be under 10 minutes":
+			response = import_parts(submission.url)
+
+			if response:
+				check_parts(submission, response)
+			else:
+				print("Video over 30 minutes")
+				log("Video over 30 minutes", submission.shortlink)
+		else:
+			print("Wait error: " + wait["Error"])
+			log("Wait error: " + wait["Error"], submission.shortlink)
+	else:
+		print("Streamable error: " + str(response.status_code))
+
+		if response.status_code == 422: # Invalid URL
+			log(response.json()["messages"]["url"][0], submission.shortlink)
+		elif response.text.startswith("ERROR: "):
+			log(response.text, submission.shortlink)
+		else:
+			log(str(response.status_code) + " - " + response.text, submission.shortlink)
+
+def process(submission):
+	pprint("https://redd.it/" + submission.id)
+
+	if submission.is_self:
+		return
+
+	check = bad_words.search(submission.title.lower())
+	if check:
+		output = "'{}' in title".format(check.group())
+		log(output, submission.shortlink)
+		print(output)
+
+		return
+
+	if submission.domain == "v.redd.it":
+		response = import_from_reddit(submission)
+	else:
+		response = import_from_other(submission)
+
+	check_response(submission, response)
 
 def log(reason, reddit="", streamable=""):
 	with open("log.txt", "a") as file:
-		file.write("{} | {} | {} | {}\n".format(reddit, reason, ctime(), streamable))
+		info = reddit, reason, ctime(), streamable
+		file.write("{} | {} | {} | {}\n".format(*info))
 
-def run():
+def run(stream):
 	while True:
 		try:
 			# Get next post
-			submission = next(PF)
-		except (RequestException, ServerError):
-			# If no connection, try again in 10 minutes
+			submission = next(stream)
+		except RequestException:
+			# Client side connection error
 			log("Connection Error")
-			sleep(10*60)
+			return
+		except ServerError:
+			# Reddit server errpr
+			log("Server Error")
+			sleep(10 * 60)
 		else:
-			print("https://redd.it/" + str(submission))
-
-			# Skip self posts
-			if submission.is_self:
-				continue
-
-			if "sex" in submission.title.lower():
-				continue
-			if "fight" in submission.title.lower():
-				continue
-
-			if submission.domain == "v.redd.it":
-				response = upload_streamable(submission)
-			else:
-				response = import_streamable(submission)
-
-			if response.status_code == 200:
-				json = response.json()
-
-				wait = wait_completed(json["shortcode"])
-
-				if wait.get("OK"):
-					redd_response = post_to_reddit(submission, json["shortcode"])
-
-					log("Success", submission.shortlink, "https://streamable.com/" + json["shortcode"])
-				else:
-					log(wait["Error"], submission.shortlink)
-			else:
-				print("Streamable error")
-				if response.status_code == 401: # Credential Error
-					log(response.text, submission.shortlink)
-				elif response.status_code == 403: # Forbidden
-					log("Forbidden", submission.shortlink)
-					return
-				elif response.status_code == 422: # Invalid URL
-					log(response.json()["messages"]["url"][0], submission.shortlink)
-				elif response.status_code == 429: # Too many requests
-					log(response.text, submission.shortlink)
-					return
-				elif response.text.startswith("ERROR: "):
-					log(response.text[7:], submission.shortlink)
+			process(submission)
 
 if __name__ == "__main__":
-	run()
+	stream = reddit.subreddit("PublicFreakout").stream.submissions()
+
+	for i in range(100-2):
+		next(stream)
+
+	run(stream)
+
+	sleep(10 * 60)
+
+	while True:
+		stream = reddit.subreddit("PublicFreakout").stream.submissions()
+
+		for i in range(100):
+			next(stream)
+
+		run(stream)
+
+		sleep(10 * 60)
