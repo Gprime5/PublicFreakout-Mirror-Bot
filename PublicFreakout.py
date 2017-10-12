@@ -54,7 +54,7 @@ class PF():
             try:
                 # Get next post
                 submission = next(self.stream)
-                self.log("Next submission: " + submission)
+                self.log("Next submission: " + str(submission))
             except RequestException:
                 # Client side error
                 self.log("Connection error")
