@@ -43,7 +43,7 @@ class PF():
 			"progress_hooks": [self._hook]
 		})
 
-		with open("hashes2.txt") as file:
+		with open("hashes.txt") as file:
 			self.hashes = [n for n in load(file) if n["created"] > time() - 2419200]
 
 	def process(self, submission):
@@ -142,7 +142,7 @@ class PF():
 						yield submission
 
 	def save(self, submission, values):
-		with open("log2.txt", "a") as file:
+		with open("log.txt", "a") as file:
 			text = "https://redd.it/{} | {} | {} | {}\n"
 			file.write(text.format(submission, *values))
 
@@ -317,7 +317,7 @@ class PF():
 
 		self.hashes.append(data)
 
-		with open("hashes2.txt", "w") as file:
+		with open("hashes.txt", "w") as file:
 			dump(self.hashes, file, indent=4, sort_keys=True)
 
 	def _streamable_import(self, submission):
