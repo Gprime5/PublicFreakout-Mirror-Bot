@@ -13,15 +13,6 @@ import subprocess
 
 print(getpid())
 
-config = ConfigParser()
-config.read("praw.ini")
-
-reddit = Reddit(**config["Reddit"])
-auth = config["Streamable"]["username"], config["Streamable"]["password"]
-output_format = re.compile("output.*")
-bad_words = re.compile("(?:sex|fight|naked|nude|nsfw|brawl|poop)")
-twitter = re.compile("https://t.co/\w+")
-
 # Empty youtube logger
 class MyLogger():
 	def debug(self, msg):
@@ -33,6 +24,11 @@ class MyLogger():
 	def error(self, msg):
 		pass
 
+config = ConfigParser()
+config.read("praw.ini")
+
+reddit = Reddit(**config["Reddit"])
+auth = config["Streamable"]["username"], config["Streamable"]["password"]
 yt = YoutubeDL({"logger": MyLogger(), "outtmpl": "Media\\output"})
 
 with open("hashes.txt") as file:
@@ -56,7 +52,7 @@ def check_hash(submission):
 def cleanup():
 	for file in listdir("Media"):
 		remove("Media/" + file)
-		
+
 def combine_media():
 	command = [
 		"ffmpeg",
@@ -86,7 +82,7 @@ def process(submission):
 		except:
 			return save("Video not found", submission)
 
-		search = twitter.search(description)
+		search = re.search("https://t.co/\w+", description)
 		if search:
 			submission.url = search.group()
 
@@ -248,7 +244,7 @@ def run():
 				if submission.is_self:
 					continue
 
-				if bad_words.search(submission.title.lower()):
+				if re.search("(?:sex|fight|naked|nude|nsfw|brawl|poop)", submission.title, 2):
 					continue
 
 				# Don't bother creating mirror for posts over a day old
