@@ -2,6 +2,7 @@ from configparser import ConfigParser
 from json import load, dump
 from os import getpid, listdir, remove
 from praw import Reddit
+from praw.models.reddit.submission import Submission
 from prawcore.exceptions import RequestException, ServerError
 from requests import get, post
 from time import sleep, ctime, time
@@ -31,23 +32,28 @@ reddit = Reddit(**config["Reddit"])
 auth = config["Streamable"]["username"], config["Streamable"]["password"]
 yt = YoutubeDL({"logger": MyLogger(), "outtmpl": "Media\\output"})
 
-with open("hashes.txt") as file:
-	# Load hash file and only keep most recent 28 days
-	hashes = [n for n in load(file) if n["created"] > time() - 3600 * 24 * 28]
+try:
+	with open("saved_links.txt") as file:
+		# Load hash file and only keep most recent 28 days
+		saved_links = [n for n in load(file) if n["created"] > time() - 3600 * 24 * 28]
+except FileNotFoundError:
+	with open("saved_links.txt", "w") as file:
+		saved_links = []
+		dump(saved_links, file)
 
-def check_hash(submission):
-	if hashes:
-		while hashes[0]["created"] < time() - 3600 * 24 * 28:
-			hashes.pop(0)
+def check_links(submission):
+	if saved_links:
+		while saved_links[0]["created"] < time() - 3600 * 24 * 28:
+			saved_links.pop(0)
 
-	for data in hashes:
+	for data in saved_links:
 		if data["video_url"] == submission.url:
 			codes = [n[-5:] for n in data["links"]]
 
 			if data["links"]:
 				reply_reddit(submission, codes)
-
-			return save("Repost", submission, codes)
+			
+				return save("Repost", submission, codes)
 
 def cleanup():
 	for file in listdir("Media"):
@@ -72,25 +78,28 @@ def download(filename, url):
 		file.write(get(url).content)			
 
 def process(submission):
-	if check_hash(submission):
+	if check_links(submission):
 		return
 
 	# Twitter post
 	if "twitter" in submission.url:
-		try:
-			description = yt.extract_info(submission.url, process=False)["description"]
-		except:
-			return save("Video not found", submission)
+		response = yt.extract_info(submission.url, process=False)
 
-		search = re.search("https://t.co/\w+", description)
-		if search:
-			submission.url = search.group()
+		while response.get("url"):
+			response = yt.extract_info(response["url"], process=False)
+
+		submission.url = response["webpage_url"]
 
 	# Reddit hosted video
 	if submission.domain == "v.redd.it":
 		# If post is crosspost, set submission to linked post
 		if submission.media is None:
-			submission = reddit.submission(submission.crosspost_parent[3:])
+			if hasattr(submission, "crosspost_parent"):
+				submission = reddit.submission(submission.crosspost_parent[3:])
+			else:
+				url = get(submission.url).url
+				_id = Submission.id_from_url(url)
+				submission.media = reddit.submission(_id).media
 
 		video_url = submission.media["reddit_video"]["fallback_url"]
 		download("video", video_url)
@@ -173,7 +182,6 @@ def process(submission):
 						"-i", "Media/" + file,
 						"-t", str(info["duration"] * (part + 1) // parts),
 						"-c", "copy",
-						"-f", "mp4",
 						"Media/{}{}".format(part, file),
 						"-y"
 					]
@@ -197,6 +205,7 @@ def process(submission):
 	else:
 		return save("Duration not found", submission)
 
+	# Should never be called
 	save("End", submission)			
 
 def reply_reddit(submission, codes):
@@ -268,18 +277,18 @@ def save(status, submission, codes=None):
 	with open(auth[0] + " log.txt", "a") as file:
 		file.write(text.format(status, submission.permalink, " | ".join(links)))
 
-	hashes.append({
+	saved_links.append({
 		"created": int(submission.created_utc),
 		"reddit": "https://www.reddit.com" + submission.permalink,
 		"video_url": submission.url,
 		"links": links
 	})
 
-	while hashes[0]["created"] < time() - 3600 * 24 * 28:
-		hashes.pop(0)
+	while saved_links[0]["created"] < time() - 3600 * 24 * 28:
+		saved_links.pop(0)
 
-	with open("hashes.txt", "w") as file:
-		dump(hashes, file, indent=4, sort_keys=True)
+	with open("saved_links.txt", "w") as file:
+		dump(saved_links, file, indent=4, sort_keys=True)
 
 	return True
 
@@ -321,3 +330,4 @@ def wait_completed(code):
 
 if __name__ == "__main__":
 	print(run())
+	
