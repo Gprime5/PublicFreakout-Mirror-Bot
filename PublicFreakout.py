@@ -1,16 +1,14 @@
 from configparser import ConfigParser
 from json import load, dump
-from os import getpid, listdir, remove
-from praw import Reddit
-from praw.models.reddit.submission import Submission
+from os import getpid, listdir, remove, path, makedirs
 from prawcore.exceptions import RequestException, ServerError
 from requests import get, post
 from time import sleep, ctime, time
-from youtube_dl import YoutubeDL
-from youtube_dl.utils import DownloadError
 
+import praw
 import re
 import subprocess
+import youtube_dl
 
 print(getpid())
 
@@ -28,9 +26,9 @@ class MyLogger():
 config = ConfigParser()
 config.read("praw.ini")
 
-reddit = Reddit(**config["Reddit"])
+reddit = praw.Reddit(**config["Reddit"])
 auth = config["Streamable"]["username"], config["Streamable"]["password"]
-yt = YoutubeDL({"logger": MyLogger(), "outtmpl": "Media\\output"})
+yt = youtube_dl.YoutubeDL({"logger": MyLogger(), "outtmpl": "Media\\output"})
 
 try:
 	with open("saved_links.txt") as file:
@@ -56,6 +54,9 @@ def check_links(submission):
 				return save("Repost", submission, codes)
 
 def cleanup():
+	if not path.exists("Media"):
+		makedirs("Media")
+
 	for file in listdir("Media"):
 		remove("Media/" + file)
 
@@ -95,10 +96,10 @@ def process(submission):
 		# If post is crosspost, set submission to linked post
 		if submission.media is None:
 			if hasattr(submission, "crosspost_parent"):
-				submission = reddit.submission(submission.crosspost_parent[3:])
+				submission.media = reddit.submission(submission.crosspost_parent[3:]).media
 			else:
 				url = get(submission.url).url
-				_id = Submission.id_from_url(url)
+				_id = praw.models.reddit.submission.id_from_url(url)
 				submission.media = reddit.submission(_id).media
 
 		video_url = submission.media["reddit_video"]["fallback_url"]
@@ -146,7 +147,7 @@ def process(submission):
 
 	try:
 		info = yt.extract_info(submission.url, process=False)
-	except DownloadError as e:
+	except youtube_dl.utilsDownloadError as e:
 		if "This video is only available for registered users" in str(e):
 			return save("Unauthorized", submission)
 		elif "Unsupported URL" in str(e):
@@ -158,7 +159,7 @@ def process(submission):
 		if info["duration"] < 1200:
 			try:
 				yt.download([submission.url])
-			except DownloadError as e:
+			except youtube_dl.utilsDownloadError as e:
 				return save(str(e).split(": ")[1], submission, (code,))
 
 			file = [i for i in listdir("Media") if "output" in i][0]
@@ -218,8 +219,7 @@ def reply_reddit(submission, codes):
 	submission.reply(" | ".join([
 		mirror_text + "  \nI am a bot",
 		"[Feedback](https://www.reddit.com/message/compose/?to=Gprime5&subject=PublicFreakout%20Mirror%20Bot)",
-		"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)"#,
-		#"[Support me](https://www.paypal.me/gprime5)"
+		"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)"
 	]))	
 
 def run():
@@ -272,14 +272,15 @@ def run():
 
 def save(status, submission, codes=None):
 	text = "{:<19} | " + ctime() + " | https://www.reddit.com{:<85} | {}\n"
+	permalink = submission.permalink.encode("ascii", "ignore").decode()
 	links = ["https://streamable.com/" + code for code in (codes or [])]
 
 	with open(auth[0] + " log.txt", "a") as file:
-		file.write(text.format(status, submission.permalink, " | ".join(links)))
+		file.write(text.format(status, permalink, " | ".join(links)))
 
 	saved_links.append({
 		"created": int(submission.created_utc),
-		"reddit": "https://www.reddit.com" + submission.permalink,
+		"reddit": "https://www.reddit.com" + permalink,
 		"video_url": submission.url,
 		"links": links
 	})
@@ -299,9 +300,12 @@ def upload(filename, title):
 	with open("Media/" + filename, "rb") as file:
 		files = {"file": (title, file)}
 
-		response = post(url, files=files, auth=auth).json()["shortcode"]
+		response = post(url, files=files, auth=auth)
 
-	return response
+	if response.status_code == 401:
+		raise PermissionError
+
+	return response.json()["shortcode"]
 
 def wait_completed(code):
 	""" Poll video until 100% complete """
@@ -329,5 +333,7 @@ def wait_completed(code):
 			return response.status_code + response.text
 
 if __name__ == "__main__":
-	print(run())
-	
+	if path.exists("ffmpeg.exe"):
+		print(run())
+	else:
+		print("Needs ffmpeg")
