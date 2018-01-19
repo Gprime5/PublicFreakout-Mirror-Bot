@@ -218,7 +218,7 @@ def reply_reddit(submission, codes):
 
 	submission.reply(" | ".join([
 		mirror_text + "  \nI am a bot",
-		"[Feedback](https://www.reddit.com/message/compose/?to={[Reddit][author]}&subject=PublicFreakout%20Mirror%20Bot)".format(config),
+		"[Feedback](https://www.reddit.com/message/compose/?to={[Reddit][host_account]}&subject=PublicFreakout%20Mirror%20Bot)".format(config),
 		"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)"
 	]))	
 
