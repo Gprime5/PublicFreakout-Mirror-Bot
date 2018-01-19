@@ -32,7 +32,7 @@ yt = youtube_dl.YoutubeDL({"logger": MyLogger(), "outtmpl": "Media\\output"})
 
 try:
 	with open("saved_links.txt") as file:
-		# Load hash file and only keep most recent 28 days
+		# Load saved links and only keep most recent 28 days
 		saved_links = [n for n in load(file) if n["created"] > time() - 3600 * 24 * 28]
 except FileNotFoundError:
 	with open("saved_links.txt", "w") as file:
