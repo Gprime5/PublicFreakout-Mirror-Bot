@@ -32,7 +32,7 @@ yt = youtube_dl.YoutubeDL({"logger": MyLogger(), "outtmpl": "Media\\output"})
 
 try:
 	with open("saved_links.txt") as file:
-		# Load saved links and only keep most recent 28 days
+		# Load hash file and only keep most recent 28 days
 		saved_links = [n for n in load(file) if n["created"] > time() - 3600 * 24 * 28]
 except FileNotFoundError:
 	with open("saved_links.txt", "w") as file:
@@ -218,7 +218,7 @@ def reply_reddit(submission, codes):
 
 	submission.reply(" | ".join([
 		mirror_text + "  \nI am a bot",
-		"[Feedback](https://www.reddit.com/message/compose/?to=Gprime5&subject=PublicFreakout%20Mirror%20Bot)",
+		"[Feedback](https://www.reddit.com/message/compose/?to={[Reddit][author]}&subject=PublicFreakout%20Mirror%20Bot)".format(config),
 		"[Github](https://github.com/Gprime5/PublicFreakout-Mirror-Bot)"
 	]))	
 
